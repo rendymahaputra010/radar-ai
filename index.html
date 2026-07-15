@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Sci-Fi AI & Radar HUD</title>
     
-    <!-- Library Online CDN Stabil -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+    <!-- HANYA MEMANGGIL FILE LOKAL (Duplikasi CDN Online Sudah Dihapus Bersih) -->
+    <script src="p5.js"></script>
+    <script src="ml5.min.js"></script>
     
     <style>
         body { 
@@ -81,8 +81,7 @@
         <div class="log-entry">[SYSTEM] Core AI Engine Booted. Awaiting Stream...</div>
     </div>
 
-    <script src="p5.js"></script>
-    <script src="ml5.min.js"></script>
+    <script>
         const wsIP = "ws://192.168.4.1:81"; 
         
         let socket; let video; let detector;
@@ -95,6 +94,7 @@
             let canvas = createCanvas(1000, 450);
             canvas.parent('canvas-container');
             
+            // Mengatur kamera belakang HP (environment) agar menyala otomatis
             video = createCapture({ audio: false, video: { facingMode: "environment" } });
             video.size(500, 450); video.hide();
 
@@ -122,10 +122,9 @@
                 let osc = audioCtx.createOscillator();
                 let gain = audioCtx.createGain();
                 
-                osc.type = 'sawtooth'; // Mengubah tipe suara menjadi gergaji (gahar/tajam)
+                osc.type = 'sawtooth'; 
                 osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
                 
-                // Volume dinaikkan ke tingkat gahar (0.4) dengan desintegrasi cepat agar berdetak tegas
                 gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
                 
@@ -141,8 +140,8 @@
             if ('speechSynthesis' in window) {
                 let speech = new SpeechSynthesisUtterance(textMessage);
                 speech.lang = 'en-US';
-                speech.pitch = 0.8; // Membuat suara robot sedikit lebih berat/ngebass
-                speech.rate = 1.0;  // Kecepatan bicara normal
+                speech.pitch = 0.8; 
+                speech.rate = 1.0;  
                 window.speechSynthesis.speak(speech);
             }
         }
@@ -150,7 +149,7 @@
         // FUNGSI GETAR HAPE (Vibration API)
         function triggerHaptic(duration) {
             if (navigator.vibrate) {
-                navigator.vibrate(duration); // Mengirim perintah getar ke fisik HP
+                navigator.vibrate(duration); 
             }
         }
 
@@ -210,7 +209,7 @@
                     lastState = currentState;
                     if(personFound) {
                         addLog("[SYS ALERT] LOCK: Human signature verified!", true);
-                        triggerHaptic([300, 100, 300]); // Pola getar HP: Getar, Diam, Getar
+                        triggerHaptic([300, 100, 300]); 
                         speakNotification("Warning. Human target locked.");
                         playHeavyAlarm(600, 0.4);
                     } else {
@@ -272,19 +271,15 @@
                 fill(255, 51, 68, 240); textSize(11);
                 text("TRGT [" + jarakSensor + "cm]", objX + 12, objY + 4);
 
-                // Pola Bunyi Alarm Berdasarkan Jarak Jangkau
+                // Pola Bunyi Alarm
                 let beepInterval = map(jarakSensor, 10, 100, 100, 800, true); 
                 if (millis() - lastBeepTime > beepInterval) {
                     let alarmFreq = map(jarakSensor, 10, 100, 900, 400, true);
-                    
-                    // Mainkan suara gahar
                     playHeavyAlarm(alarmFreq, 0.12);
                     
-                    // Jika kondisi bahaya dekat, picu getaran pendek di HP mengikuti ritme alarm
                     if (jarakSensor < 40) {
                         triggerHaptic(50);
                     }
-                    
                     lastBeepTime = millis();
                 }
             }

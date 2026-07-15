@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Sci-Fi AI & Radar HUD</title>
     
-    <!-- HANYA MEMANGGIL FILE LOKAL (Duplikasi CDN Online Sudah Dihapus Bersih) -->
+    <!-- Memanggil library lokal -->
     <script src="p5.js"></script>
     <script src="ml5.min.js"></script>
     
@@ -94,7 +94,6 @@
             let canvas = createCanvas(1000, 450);
             canvas.parent('canvas-container');
             
-            // Mengatur kamera belakang HP (environment) agar menyala otomatis
             video = createCapture({ audio: false, video: { facingMode: "environment" } });
             video.size(500, 450); video.hide();
 
@@ -114,7 +113,6 @@
             }
         }
 
-        // FUNGSI ALARM GAHAR (Sawtooth Wave + High Volume)
         function playHeavyAlarm(frequency, duration) {
             try {
                 initAudio();
@@ -135,7 +133,6 @@
             } catch(e) {}
         }
 
-        // FUNGSI SUARA PEMBERITAHUAN ROBOT (Text-to-Speech)
         function speakNotification(textMessage) {
             if ('speechSynthesis' in window) {
                 let speech = new SpeechSynthesisUtterance(textMessage);
@@ -146,7 +143,6 @@
             }
         }
 
-        // FUNGSI GETAR HAPE (Vibration API)
         function triggerHaptic(duration) {
             if (navigator.vibrate) {
                 navigator.vibrate(duration); 
@@ -185,7 +181,6 @@
             background(10, 16, 12);
             image(video, 0, 0, 500, 450);
             
-            // Overlay Grid Efek Kamera
             stroke(0, 255, 102, 15); strokeWeight(1);
             for (let y = 0; y < height; y += 4) { line(0, y, 500, y); }
 
@@ -271,7 +266,6 @@
                 fill(255, 51, 68, 240); textSize(11);
                 text("TRGT [" + jarakSensor + "cm]", objX + 12, objY + 4);
 
-                // Pola Bunyi Alarm
                 let beepInterval = map(jarakSensor, 10, 100, 100, 800, true); 
                 if (millis() - lastBeepTime > beepInterval) {
                     let alarmFreq = map(jarakSensor, 10, 100, 900, 400, true);

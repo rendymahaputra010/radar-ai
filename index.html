@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MediaPipe Sci-Fi AI & Radar HUD</title>
     
-    <!-- Memanggil Library Lokal Sesuai Struktur Baru -->
+    <!-- Memanggil p5.js secara standar -->
     <script src="p5.js"></script>
-    <script src="vision_bundle.mjs"></script>
     
     <style>
         body { 
@@ -81,6 +80,13 @@
         <div class="log-entry">[SYSTEM] Core AI Engine Booted. Awaiting Stream...</div>
     </div>
 
+    <!-- Menjembatani modul mjs agar fungsi FilesetResolver bisa diakses p5.js -->
+    <script type="module">
+        import { FilesetResolver, ObjectDetector } from "./vision_bundle.mjs";
+        window.FilesetResolver = FilesetResolver;
+        window.ObjectDetector = ObjectDetector;
+    </script>
+
     <script>
         const wsIP = "ws://192.168.4.1:81"; 
         
@@ -92,32 +98,37 @@
         let isModelReady = false;
 
         async function initializeObjectDetector() {
-            // Mengarahkan ke folder lokal './wasm' yang sudah kamu buat di GitHub
-            const vision = await FilesetResolver.forVisionTasks(
-                "./wasm"
-            );
-            
-            objectDetector = await ObjectDetector.createFromOptions(vision, {
-                baseOptions: {
-                    // Model AI super ringan (EfficientDet-Lite0)
-                    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
-                    delegate: "GPU" // Memaksa akselerasi grafis GPU HP agar FPS melonjak tinggi
-                },
-                scoreThreshold: 0.4,
-                runningMode: "VIDEO"
-            });
-            
-            select('#ai-status').html('AI STATUS: MEDIAPIPE ACTIVE');
-            addLog("[AI] Google MediaPipe GPU Accelerated Model Loaded.", false);
-            speakNotification("MediaPipe active.");
-            isModelReady = true;
+            try {
+                // Menunggu module window.FilesetResolver terikat sempurna
+                if (!window.FilesetResolver) {
+                    setTimeout(initializeObjectDetector, 500);
+                    return;
+                }
+                
+                const vision = await window.FilesetResolver.forVisionTasks("./wasm");
+                
+                objectDetector = await window.ObjectDetector.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+                        delegate: "GPU"
+                    },
+                    scoreThreshold: 0.4,
+                    runningMode: "VIDEO"
+                });
+                
+                select('#ai-status').html('AI STATUS: MEDIAPIPE ACTIVE');
+                addLog("[AI] Google MediaPipe Model Loaded successfully.", false);
+                speakNotification("MediaPipe active.");
+                isModelReady = true;
+            } catch (err) {
+                addLog("[ERROR AI] Failed to load MediaPipe: " + err.message, true);
+            }
         }
 
         function setup() {
             let canvas = createCanvas(1000, 450);
             canvas.parent('canvas-container');
             
-            // Kamera diatur ideal ke 480x360 untuk menghemat memori RAM HP
             video = createCapture({ 
                 audio: false, 
                 video: { 
@@ -198,11 +209,9 @@
             background(10, 16, 12);
             image(video, 0, 0, 500, 450);
             
-            // Efek Scanlines Grid Kamera
             stroke(0, 255, 102, 15); strokeWeight(1);
             for (let y = 0; y < height; y += 4) { line(0, y, 500, y); }
 
-            // Pemrosesan Frame Deteksi MediaPipe Real-time
             if (isModelReady && video.elt.readyState >= 2) {
                 try {
                     const now = millis();
@@ -213,18 +222,15 @@
 
             let personFound = false;
 
-            // Membaca Hasil Array Deteksi Objek
             for (let i = 0; i < detections.length; i++) {
                 let obj = detections[i];
                 let category = obj.categories[0];
                 let labelName = category.categoryName;
                 
-                // Kunci Target Spesifik: Hanya Manusia (Person)
                 if (labelName === "person") {
                     personFound = true;
                     
                     let box = obj.boundingBox;
-                    // Mapping dari aspek video (480x360) ke canvas HUD (500x450)
                     let mappedX = map(box.originX, 0, video.width, 0, 500);
                     let mappedY = map(box.originY, 0, video.height, 0, 450);
                     let mappedW = map(box.width, 0, video.width, 0, 500);
@@ -239,7 +245,6 @@
                 }
             }
 
-            // Komunikasi Data ke Pin Microcontroller
             if (socket && socket.readyState === WebSocket.OPEN) {
                 let currentState = personFound ? "1" : "0";
                 if (currentState !== lastState) {
@@ -258,7 +263,6 @@
 
             stroke(0, 255, 102, 60); strokeWeight(2); line(500, 0, 500, height);
 
-            // SISI KANAN: HUD RADAR (60 FPS Lancar Jaya)
             let centerX = 750; let centerY = 225;
             noFill(); stroke(0, 255, 102, 35); strokeWeight(1);
             for(let r = 50; r <= 200; r += 50) { ellipse(centerX, centerY, r*2, r*2); }
@@ -276,7 +280,6 @@
                 fill(0, 255, 102, 120); text("SYSTEM: SCANNING_MODE", centerX - 68, centerY - 15);
             }
 
-            // Putaran Sapuan Hijau Radar
             radarAngle += 0.05; 
             for (let i = 0; i < trailLength; i++) {
                 let currentAlpha = map(i, 0, trailLength, 200, 0);
@@ -287,7 +290,6 @@
                 line(centerX, centerY, x2, y2);
             }
 
-            // Menggambar Posisi Objek Merah Radar Jarak Sensor Physical
             let radiusObjek = map(jarakSensor, 0, 100, 0, 200, true);
             if (jarakSensor < 100) {
                 let objX = centerX + cos(radarAngle - 0.2) * radiusObjek;

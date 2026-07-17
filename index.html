@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Sci-Fi AI & Radar HUD</title>
+    <title>MediaPipe Sci-Fi AI & Radar HUD</title>
     
-    <!-- Memanggil library lokal -->
+    <!-- Memanggil Library Lokal Sesuai Struktur Baru -->
     <script src="p5.js"></script>
-    <script src="ml5.min.js"></script>
+    <script src="vision_bundle.mjs"></script>
     
     <style>
         body { 
@@ -68,11 +68,11 @@
 </head>
 <body>
 
-    <h2>⚡ TACTICAL RADAR & AI HUD SYSTEM ⚡</h2>
+    <h2>⚡ MEDIAPIPE RADAR & AI HUD ⚡</h2>
     
     <div class="hud-panel">
         <div class="info" id="radar-val">RANGE: -- CM</div>
-        <div class="info" id="ai-status">INITIALIZING SYSTEM MATRIX...</div>
+        <div class="info" id="ai-status">INITIALIZING MEDIAPIPE MATRIX...</div>
     </div>
 
     <div id="canvas-container"></div>
@@ -84,26 +84,52 @@
     <script>
         const wsIP = "ws://192.168.4.1:81"; 
         
-        let socket; let video; let detector;
+        let socket; let video; let objectDetector;
         let detections = []; let jarakSensor = 100; 
         let radarAngle = 0; let lastState = "0";
         let trailLength = 40; 
         let audioCtx; let lastBeepTime = 0;
+        let isModelReady = false;
+
+        async function initializeObjectDetector() {
+            // Mengarahkan ke folder lokal './wasm' yang sudah kamu buat di GitHub
+            const vision = await FilesetResolver.forVisionTasks(
+                "./wasm"
+            );
+            
+            objectDetector = await ObjectDetector.createFromOptions(vision, {
+                baseOptions: {
+                    // Model AI super ringan (EfficientDet-Lite0)
+                    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+                    delegate: "GPU" // Memaksa akselerasi grafis GPU HP agar FPS melonjak tinggi
+                },
+                scoreThreshold: 0.4,
+                runningMode: "VIDEO"
+            });
+            
+            select('#ai-status').html('AI STATUS: MEDIAPIPE ACTIVE');
+            addLog("[AI] Google MediaPipe GPU Accelerated Model Loaded.", false);
+            speakNotification("MediaPipe active.");
+            isModelReady = true;
+        }
 
         function setup() {
             let canvas = createCanvas(1000, 450);
             canvas.parent('canvas-container');
             
-            video = createCapture({ audio: false, video: { facingMode: "environment" } });
-            video.size(500, 450); video.hide();
-
-            detector = ml5.objectDetector('cocossd', () => {
-                select('#ai-status').html('AI STATUS: ACTIVE // SCANNING');
-                addLog("[AI] Object detector model loaded.", false);
-                speakNotification("System active. AI scanning initiated.");
-                detector.detect(video, gotDetections);
+            // Kamera diatur ideal ke 480x360 untuk menghemat memori RAM HP
+            video = createCapture({ 
+                audio: false, 
+                video: { 
+                    facingMode: "environment",
+                    width: { ideal: 480 },
+                    height: { ideal: 360 }
+                } 
             });
+            video.size(480, 360); 
+            video.hide();
 
+            initializeObjectDetector();
             connectSocket(); 
         }
 
@@ -119,13 +145,10 @@
                 if (!audioCtx) return;
                 let osc = audioCtx.createOscillator();
                 let gain = audioCtx.createGain();
-                
                 osc.type = 'sawtooth'; 
                 osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
-                
                 gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-                
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
                 osc.start();
@@ -156,17 +179,11 @@
                 let prevJarak = jarakSensor;
                 jarakSensor = int(event.data);
                 select('#radar-val').html('RANGE: ' + jarakSensor + ' CM');
-                
                 if(abs(prevJarak - jarakSensor) > 5) {
                     addLog("[RADAR] Shift detected: " + jarakSensor + " cm", false);
                 }
             };
             socket.onclose = () => { setTimeout(connectSocket, 2000); };
-        }
-
-        function gotDetections(error, results) {
-            if (!error) { detections = results; }
-            detector.detect(video, gotDetections);
         }
 
         function addLog(message, isAlert) {
@@ -181,31 +198,57 @@
             background(10, 16, 12);
             image(video, 0, 0, 500, 450);
             
+            // Efek Scanlines Grid Kamera
             stroke(0, 255, 102, 15); strokeWeight(1);
             for (let y = 0; y < height; y += 4) { line(0, y, 500, y); }
 
-            let personFound = false;
-
-            for (let i = 0; i < detections.length; i++) {
-                let obj = detections[i];
-                stroke(0, 255, 102); strokeWeight(2); noFill();
-                rect(obj.x, obj.y, obj.width, obj.height, 4);
-                
-                fill(0, 255, 102, 200); noStroke();     rect(obj.x, obj.y - 22, obj.width, 22);
-                fill(0, 0, 0);          textSize(13);   text(obj.label.toUpperCase(), obj.x + 6, obj.y - 6);
-
-                if (obj.label === "person") { personFound = true; }
+            // Pemrosesan Frame Deteksi MediaPipe Real-time
+            if (isModelReady && video.elt.readyState >= 2) {
+                try {
+                    const now = millis();
+                    const result = objectDetector.detectForVideo(video.elt, now);
+                    detections = result.detections;
+                } catch (e) {}
             }
 
+            let personFound = false;
+
+            // Membaca Hasil Array Deteksi Objek
+            for (let i = 0; i < detections.length; i++) {
+                let obj = detections[i];
+                let category = obj.categories[0];
+                let labelName = category.categoryName;
+                
+                // Kunci Target Spesifik: Hanya Manusia (Person)
+                if (labelName === "person") {
+                    personFound = true;
+                    
+                    let box = obj.boundingBox;
+                    // Mapping dari aspek video (480x360) ke canvas HUD (500x450)
+                    let mappedX = map(box.originX, 0, video.width, 0, 500);
+                    let mappedY = map(box.originY, 0, video.height, 0, 450);
+                    let mappedW = map(box.width, 0, video.width, 0, 500);
+                    let mappedH = map(box.height, 0, video.height, 0, 450);
+
+                    stroke(0, 255, 102); strokeWeight(2); noFill();
+                    rect(mappedX, mappedY, mappedW, mappedH, 4);
+                    
+                    fill(0, 255, 102, 200); noStroke(); rect(mappedX, mappedY - 22, 115, 22);
+                    fill(0, 0, 0); textSize(12); 
+                    text("PERSON " + floor(category.score * 100) + "%", mappedX + 6, mappedY - 6);
+                }
+            }
+
+            // Komunikasi Data ke Pin Microcontroller
             if (socket && socket.readyState === WebSocket.OPEN) {
                 let currentState = personFound ? "1" : "0";
                 if (currentState !== lastState) {
                     socket.send(currentState);
                     lastState = currentState;
                     if(personFound) {
-                        addLog("[SYS ALERT] LOCK: Human signature verified!", true);
+                        addLog("[SYS ALERT] LOCK: MediaPipe Human Locked!", true);
                         triggerHaptic([300, 100, 300]); 
-                        speakNotification("Warning. Human target locked.");
+                        speakNotification("Warning. Target locked.");
                         playHeavyAlarm(600, 0.4);
                     } else {
                         addLog("[SYS] Target lost.", false);
@@ -215,7 +258,7 @@
 
             stroke(0, 255, 102, 60); strokeWeight(2); line(500, 0, 500, height);
 
-            // SISI KANAN: HUD RADAR
+            // SISI KANAN: HUD RADAR (60 FPS Lancar Jaya)
             let centerX = 750; let centerY = 225;
             noFill(); stroke(0, 255, 102, 35); strokeWeight(1);
             for(let r = 50; r <= 200; r += 50) { ellipse(centerX, centerY, r*2, r*2); }
@@ -228,15 +271,13 @@
 
             textSize(12);
             if (jarakSensor < 40) {
-                fill(255, 51, 68, 200);
-                text("⚠️ DANGER CLOSE", centerX - 50, centerY - 15);
+                fill(255, 51, 68, 200); text("⚠️ DANGER CLOSE", centerX - 50, centerY - 15);
             } else {
-                fill(0, 255, 102, 120);
-                text("SYSTEM: SCANNING_MODE", centerX - 68, centerY - 15);
+                fill(0, 255, 102, 120); text("SYSTEM: SCANNING_MODE", centerX - 68, centerY - 15);
             }
 
-            // Sapuan Radar
-            radarAngle += 0.035;
+            // Putaran Sapuan Hijau Radar
+            radarAngle += 0.05; 
             for (let i = 0; i < trailLength; i++) {
                 let currentAlpha = map(i, 0, trailLength, 200, 0);
                 stroke(0, 255, 102, currentAlpha);
@@ -246,34 +287,24 @@
                 line(centerX, centerY, x2, y2);
             }
 
+            // Menggambar Posisi Objek Merah Radar Jarak Sensor Physical
             let radiusObjek = map(jarakSensor, 0, 100, 0, 200, true);
-            
             if (jarakSensor < 100) {
                 let objX = centerX + cos(radarAngle - 0.2) * radiusObjek;
                 let objY = centerY + sin(radarAngle - 0.2) * radiusObjek;
                 
                 let pulseSize = 15 + sin(frameCount * 0.2) * 8;
-                stroke(255, 51, 68, 180); strokeWeight(1.5); noFill();
-                ellipse(objX, objY, pulseSize, pulseSize);
+                stroke(255, 51, 68, 180); strokeWeight(1.5); noFill(); ellipse(objX, objY, pulseSize, pulseSize);
+                stroke(255, 51, 68, 220); line(objX - 10, objY, objX + 10, objY); line(objX, objY - 10, objX, objY + 10);
+                fill(255, 51, 68); noStroke(); ellipse(objX, objY, 6, 6);
                 
-                stroke(255, 51, 68, 220);
-                line(objX - 10, objY, objX + 10, objY);
-                line(objX, objY - 10, objX, objY + 10);
-                
-                fill(255, 51, 68); noStroke();
-                ellipse(objX, objY, 6, 6);
-                
-                fill(255, 51, 68, 240); textSize(11);
-                text("TRGT [" + jarakSensor + "cm]", objX + 12, objY + 4);
+                fill(255, 51, 68, 240); textSize(11); text("TRGT [" + jarakSensor + "cm]", objX + 12, objY + 4);
 
                 let beepInterval = map(jarakSensor, 10, 100, 100, 800, true); 
                 if (millis() - lastBeepTime > beepInterval) {
                     let alarmFreq = map(jarakSensor, 10, 100, 900, 400, true);
                     playHeavyAlarm(alarmFreq, 0.12);
-                    
-                    if (jarakSensor < 40) {
-                        triggerHaptic(50);
-                    }
+                    if (jarakSensor < 40) triggerHaptic(50);
                     lastBeepTime = millis();
                 }
             }
